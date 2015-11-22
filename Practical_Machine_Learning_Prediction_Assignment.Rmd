@@ -1,0 +1,157 @@
+---
+title: "Weight Lifting Exercise Prediction Assignment"
+author: "Raja Karipineni"
+date: "November 21, 2015"
+output: pdf_document
+---
+
+# 1. Introduction and Overview
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. For this project, our goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information and data is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We may use any of the other variables to predict with. This report describes how we built this model, how we used cross validation, what we think the expected out of sample error is, and why we made the choices we did. We will also use this prediction model to predict 20 different test cases. 
+
+# 2. Data Set and Credit to Data Authors
+
+The training data for this project is available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data is available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. It was part of paper published by following people:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises (http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises#ixzz3sC65PSxO
+
+Load the required libraries first.
+
+```{r, results='hide'}
+library(caret)
+library(ggplot2)
+library(randomForest)
+```
+
+Downloaded data files before hand from above dataset URLs to local project directory.
+
+```{r, results='hide'}
+# Sample download commands for programatically downloading: 
+# trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+# download.file(url=train_url, destfile="pml-training.csv")
+training <- read.csv('pml-training.csv', na.strings=c("NA","#DIV/0!",""))
+testing  <- read.csv('pml-testing.csv' , na.strings=c("NA","#DIV/0!",""))
+names(training) # output suppressed in this code chunk with results='hide'
+summary(training$classe) # classe is the outcome
+```
+
+Split training data set into newTrain and newTest(needed for cross validation strategy) data sets. Keep the original testing data set untouched.
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.6, list=FALSE)
+newTrain <- training[inTrain,]
+newTest  <- training[-inTrain,]
+dim(newTrain)
+dim(newTest)
+```
+
+# 3. Cleanup of Data
+We will remove columns with 70% or more of NA values. In addition remove near zero values and non-predictor columns like timestamp (first seven columns).
+```{r}
+len <- length(newTrain)
+newTrainSubset1 <- newTrain
+
+for (i in 1:len) 
+{
+   if ( sum(is.na(newTrain[ , i])) / nrow(newTrain) >= .70) #identify columns with 70% or more NAs
+   {
+
+      for (j in 1:length(newTrainSubset1)) 
+      {
+        if ( length(grep(names(newTrain[i]), names(newTrainSubset1)[j])) == 1)  # see column names are same
+        {
+           newTrainSubset1 <- newTrainSubset1[ , -j]   # remove this jth column
+        }
+      }
+   }
+}
+
+dim(newTrainSubset1)
+
+#Remove first seven columns which includes timestamps ...etc.
+newTrainClean <- newTrainSubset1[, -c(1:7)]
+dim(newTrainClean)  # it should be seven less columns now
+
+nearZeroValues <- nearZeroVar(newTrainClean, saveMetrics = TRUE)
+nearZeroValues # since all are false, no further cleanup is required.
+```
+
+# 4. Random Forest Tree Model
+Since Random Forest Tree model is widely used, we are going to use the same model for predictive algorithm. Any efficiency/performance considerations are out of scope for this project.
+
+```{r}
+set.seed(1456)
+modelFit1 <- randomForest(classe ~ ., data = newTrainClean)
+# fancyRpartPlot(modelFit1)  # could not install rattle pkg due to several unsolved errors/dependencies!!! Time is the constraint.
+print(modelFit1)
+```
+
+Generate Predictions
+
+```{r}
+predictions <- predict(modelFit1, newTest, type="class")
+```
+
+Let us use ConfusionMatrix on newTest data set (we set aside from training set) to do cross validate using the predictions we just created.
+
+
+```{r}
+confusionMatrix(predictions, newTest$classe)
+```
+
+As you see above accuracy is close to 99%.
+
+# 5. Error Rate
+
+Now let us calculate Out Of Sample (OOS) error rate. We expect this error rate to be less than 1% (for brevity) and let us cross-validation data set. Let us take missClass() function given in quiz3 (ques 4) and modify to use it here.
+
+```{r}
+missClass = function(values, predictions) {
+        sum(predictions != values) / length(values)
+        }
+oosErr <- missClass(newTest$classe, predictions) # out of sample error
+oosErr
+```
+
+As calculated (see output) above the out of sample error rate is less than one percent: 0.69% (less than one percent).
+
+# 6. Generating Final Predictions for Submission to Course web site
+
+Apply our model on given testing data set of 20 observations. Each prediction is written to separate output file.
+
+```{r}
+
+predictionsFinal <- predict(modelFit1, testing, type="class")
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictionsFinal)
+```
+
+Look for 20 files generated in project directory and submit to Coursera web site for grading.
+
+Results:
+```{r}
+# Levels: A B C D E (corresponds to one correct way [A] and four incorrect ways of weight lifting).
+# Test case#s and predicted values
+# 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
+# B A B A A E D B A  A  B  C  B  A  E  E  A  B  B  B
+```
